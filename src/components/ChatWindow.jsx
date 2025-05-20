@@ -1,4 +1,8 @@
 import { useState, useEffect, useRef } from "react";
+import { Input } from "./ui/input";
+import { Button } from "./ui/button";
+import { ScrollArea } from "./ui/scroll-area";
+import { Card } from "./ui/card";
 
 export default function ChatWindow({ conversation }) {
   const [input, setInput] = useState('');
@@ -10,6 +14,7 @@ export default function ChatWindow({ conversation }) {
       const newMessage = {
         from: "agent",
         text: input.trim(),
+        timestamp: new Date().toISOString()
       };
       setMessages([...messages, newMessage]);
       setInput('');
@@ -17,40 +22,55 @@ export default function ChatWindow({ conversation }) {
   };
 
   useEffect(() => {
+    setMessages(conversation.messages || []);
+  }, [conversation]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   return (
-    <div className="w-2/4 flex flex-col justify-between border-r h-full">
-      <div className="p-4 flex-1 overflow-y-auto">
-        {messages.map((msg, idx) => (
-          <div
-            key={idx}
-            className={`my-2 ${msg.from === "agent" ? "text-right" : "text-left"}`}
-          >
-            <p className={`inline-block p-2 rounded ${msg.from === "agent" ? "bg-blue-100" : "bg-gray-100"}`}>
-              {msg.text}
-            </p>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
+    <Card className="w-full flex flex-col h-full">
+      <ScrollArea className="flex-1 p-4">
+        <div className="space-y-4">
+          {messages.map((msg, idx) => (
+            <div
+              key={`${msg.timestamp || idx}-${idx}`}
+              className={`flex ${msg.from === "agent" ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                  msg.from === "agent"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted"
+                }`}
+              >
+                <p className="text-sm">{msg.text}</p>
+                <p className="text-xs text-muted-foreground mt-1 text-right">
+                  {new Date(msg.timestamp || Date.now()).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </p>
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      </ScrollArea>
+
       <div className="p-4 border-t flex items-center gap-2">
-        <input
-          type="text"
+        <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          className="flex-1 p-2 border rounded"
           placeholder="Type your message..."
+          className="flex-1"
         />
-        <button
-          onClick={handleSend}
-          className="bg-blue-500 text-white px-4 py-2 rounded"
-        >
+        <Button onClick={handleSend} size="sm">
           Send
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }

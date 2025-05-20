@@ -1,178 +1,223 @@
-import { useState, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
+import React, { useState, useEffect } from "react"
+import ReactMarkdown from "react-markdown"
 
+import { Button } from "./ui/button"
+import { Input } from "./ui/input"
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "./ui/tooltip"
+import { Card, CardHeader, CardContent } from "./ui/card"
+import { ScrollArea } from "./ui/scroll-area"
+import { Separator } from "./ui/separator"
+
+const STORE_POLICIES = {
+  refund:
+    "Refunds are available within 14 days of purchase, provided the item is unused and in original packaging.",
+  return:
+    "Returns are accepted within 30 days. Items must be in good condition and accompanied by a receipt.",
+  exchange:
+    "Exchanges can be made within 15 days for items of equal or lesser value.",
+  shipping:
+    "Shipping charges are non-refundable. Return shipping must be covered by the customer unless the item is defective.",
+}
+
+/* ---------- dotted tool-tip for matched policies ---------- */
+function TooltipDot({ policies }) {
+  if (!policies?.length) return null
+
+  return (
+    <TooltipProvider delayDuration={100}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="ml-1 select-none cursor-help text-xs text-muted-foreground align-super">
+            ●
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          {policies.map(({ topic, text }) => (
+            <p key={topic} className="mb-1">
+              <strong>{topic.toUpperCase()}:</strong> {text}
+            </p>
+          ))}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+/* -------------------- main component -------------------- */
 export default function AICopilot({ conversation, setComposerText }) {
-  const [question, setQuestion] = useState('');
-  const [chatHistory, setChatHistory] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [summary, setSummary] = useState('');
-  const [personalizedText, setPersonalizedText] = useState('');
+  const [question, setQuestion] = useState("")
+  const [chatHistory, setChatHistory] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [summary, setSummary] = useState("")
 
-  const API_URL = import.meta.env.VITE_API_URL;
+  const API_URL = import.meta.env.VITE_API_URL
 
-  // Generate conversation summary on mount
+  /* fetch summary whenever conversation changes */
   useEffect(() => {
-    const fullText = conversation.messages.map(msg => `${msg.from}: ${msg.text}`).join('\n');
-    fetchSummary(fullText);
-  }, [conversation]);
+    const fullText = conversation.messages
+      .map((m) => `${m.from}: ${m.text}`)
+      .join("\n")
+    fetchSummary(fullText)
+  }, [conversation])
 
   const fetchSummary = async (text) => {
     try {
       const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: `Summarize this conversation:\n${text}` }] }],
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `Summarize this customer support conversation in 2-3 sentences for the agent's reference:\n${text}`,
+                },
+              ],
+            },
+          ],
         }),
-      });
-
-      const data = await res.json();
-      const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      setSummary(reply);
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error.message)
+      setSummary(
+        data?.candidates?.[0]?.content?.parts?.[0]?.text ??
+          "No summary available",
+      )
     } catch (err) {
-      setSummary('Error generating summary.');
+      console.error("Summary error:", err)
+      setSummary("Could not generate summary")
     }
-  };
+  }
 
+  /* tiny helper */
+  const getMatchedPolicies = (txt) => {
+    if (!txt) return []
+    const lowered = txt.toLowerCase()
+    return Object.entries(STORE_POLICIES)
+      .filter(([k]) => lowered.includes(k))
+      .map(([topic, text]) => ({ topic, text }))
+  }
+
+  /* ask copilot */
   const handleAsk = async () => {
-    if (!question.trim()) return;
+    if (!question.trim()) return
 
-    const fullText = conversation.messages.map(msg => `${msg.from}: ${msg.text}`).join('\n');
-
-    const newChat = { role: 'user', text: question };
-    setChatHistory((prev) => [...prev, newChat]);
-    setLoading(true);
+    const fullText = conversation.messages
+      .map((m) => `${m.from}: ${m.text}`)
+      .join("\n")
+    setChatHistory((h) => [...h, { role: "user", text: question }])
+    setLoading(true)
 
     try {
+      const prompt = `As an AI assistant helping a support agent, answer this question based on the conversation history and store policies:
+
+CONVERSATION HISTORY:
+${fullText}
+
+STORE POLICIES:
+${JSON.stringify(STORE_POLICIES, null, 2)}
+
+AGENT'S QUESTION: ${question}
+
+Provide a concise answer focusing on the most relevant policy information. Format your response in clear markdown. If unsure, say "I'm not sure - please check with a supervisor."`
+
       const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `You are an AI copilot assisting a support agent.\n\nConversation:\n${fullText}\n\nQuestion: ${question}`,
-                },
-              ],
-            },
-          ],
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
         }),
-      });
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error.message)
 
-      const data = await res.json();
-      const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const reply =
+        data?.candidates?.[0]?.content?.parts?.[0]?.text ??
+        "I couldn't generate a response. Please try again."
 
-      setChatHistory((prev) => [...prev, { role: 'bot', text: reply }]);
+      setChatHistory((h) => [...h, { role: "bot", text: reply }])
+      // setComposerText((prev) => `${prev}\n${reply}`) // opt-in auto-insert
     } catch (err) {
-      setChatHistory((prev) => [...prev, { role: 'bot', text: 'Error getting response.' }]);
+      console.error("API error:", err)
+      setChatHistory((h) => [
+        ...h,
+        { role: "bot", text: "Error connecting to AI service. Please try again later." },
+      ])
     } finally {
-      setLoading(false);
-      setQuestion('');
+      setLoading(false)
+      setQuestion("")
     }
-  };
+  }
 
-  const handleRewrite = async () => {
-    const lastBot = chatHistory.filter(msg => msg.role === 'bot').at(-1);
-    if (!lastBot) return;
-
-    setLoading(true);
-    try {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `Rewrite the following message in a more friendly and human tone:\n\n"${lastBot.text}"`,
-                },
-              ],
-            },
-          ],
-        }),
-      });
-
-      const data = await res.json();
-      const rewritten = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      setPersonalizedText(rewritten);
-    } catch (err) {
-      setPersonalizedText('Error rewriting message.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  /* -------------------- JSX -------------------- */
   return (
-    <div className="w-1/4 p-4 flex flex-col h-full border-l bg-gray-50 overflow-hidden">
-      <h3 className="font-semibold mb-1">🤖 Hi, I’m Fin – AI Copilot</h3>
-      <p className="text-sm text-gray-600 mb-2">Ask me anything about this conversation.</p>
-{/* 
-      <div className="mb-4 bg-yellow-100 p-3 rounded text-sm">
-        <strong className="text-yellow-900">📌 Summary:</strong>
-        <p className="text-gray-800 mt-1">{summary}</p>
-      </div> */}
+    <aside className="flex h-full w-80 shrink-0 flex-col border-l bg-muted/50">
+      <header className="p-4">
+        <h3 className="text-base font-semibold">🤖 AI Support Copilot</h3>
+        <p className="text-sm text-muted-foreground">
+          Ask me about policies or conversation details
+        </p>
+      </header>
 
-      <div className="flex-1 overflow-y-auto mb-3 space-y-2 pr-1">
-        {chatHistory.map((msg, idx) => (
+      {/* summary card */}
+      <Card className="mx-4 mb-4">
+        <CardHeader className="pb-2 text-sm font-semibold">
+          📌 Conversation Summary
+        </CardHeader>
+        <CardContent className="text-sm">{summary}</CardContent>
+      </Card>
+
+      {/* scrollable chat history */}
+      <ScrollArea className="flex-1 px-4">
+        {chatHistory.map((msg, i) => (
           <div
-            key={idx}
-            className={`p-2 rounded text-sm whitespace-pre-wrap ${
-              msg.role === 'user'
-                ? 'bg-blue-100 text-blue-900'
-                : 'bg-green-100 text-green-900'
+            key={i}
+            className={`mb-2 rounded-md border p-2 text-sm ${
+              msg.role === "user"
+                ? "bg-background"
+                : "bg-primary/5 border-primary/20"
             }`}
           >
-            <strong>{msg.role === 'user' ? 'You' : 'Copilot'}:</strong>{' '}
-            {msg.role === 'bot' ? (
-              <ReactMarkdown>{msg.text}</ReactMarkdown>
+            <strong>{msg.role === "user" ? "You" : "Copilot"}:</strong>{" "}
+            {msg.role === "bot" ? (
+              <>
+                <ReactMarkdown>{msg.text}</ReactMarkdown>
+                <TooltipDot policies={getMatchedPolicies(msg.text)} />
+              </>
             ) : (
               msg.text
             )}
-             {/* <button
-            onClick={() => setComposerText(personalizedText)}
-            className="text-xs bg-purple-600 text-white py-1 px-2 rounded hover:bg-purple-700"
-          >
-            ➕ Add to Composer
-          </button> */}
           </div>
         ))}
-      </div>
 
-      {personalizedText && (
-        <div className="mb-3 bg-purple-100 p-2 rounded text-sm text-purple-900">
-          <strong>✨ Personalized:</strong> {personalizedText}
-        </div>
-      )}
+        {loading && (
+          <p className="mb-2 rounded-md bg-muted p-2 text-sm text-muted-foreground">
+            Thinking&hellip;
+          </p>
+        )}
+      </ScrollArea>
 
-      <div className="flex gap-2 mb-2">
-        <input
-          type="text"
+      <Separator />
+
+      {/* question input */}
+      <div className="flex items-center gap-2 p-4">
+        <Input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask a question..."
-          className="flex-1 p-2 border rounded text-sm"
-          onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
-        />
-        <button
-          onClick={handleAsk}
+          placeholder="Ask about policies or conversation..."
+          onKeyDown={(e) => e.key === "Enter" && handleAsk()}
           disabled={loading}
-          className="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 text-sm"
-        >
-          {loading ? 'Thinking...' : 'Ask'}
-        </button>
+        />
+        <Button size="sm" onClick={handleAsk} disabled={loading}>
+          {loading ? "…" : "Ask"}
+        </Button>
       </div>
-
-      {/* <button
-        onClick={handleRewrite}
-        disabled={loading || !chatHistory.some(msg => msg.role === 'bot')}
-        className="text-xs bg-purple-600 text-white py-1.5 px-3 rounded hover:bg-purple-700 disabled:opacity-50"
-      >
-        🎨 Make it sound more like us
-      </button> */}
-    </div>
-  );
+    </aside>
+  )
 }
